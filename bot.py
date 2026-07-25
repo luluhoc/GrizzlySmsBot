@@ -50,6 +50,7 @@ class Config:
     country: str
     max_price: str
     provider_ids: str | None
+    exclude_provider_ids: str | None
     workers: int
     rate: float
     timeout: float
@@ -65,6 +66,7 @@ class Config:
             country=env_required("COUNTRY"),
             max_price=env_required("MAX_PRICE"),
             provider_ids=os.getenv("PROVIDER_IDS", "").strip() or None,
+            exclude_provider_ids=os.getenv("EXCLUDE_PROVIDER_IDS", "").strip() or None,
             workers=env_int("THREADS"),
             rate=env_float("MAX_REQUESTS_PER_SECOND"),
             timeout=env_float("REQUEST_TIMEOUT_SECONDS", 1),
@@ -84,6 +86,8 @@ class Config:
         }
         if self.provider_ids:
             params["providerIds"] = self.provider_ids
+        if self.exclude_provider_ids:
+            params["excludeProviderIds"] = self.exclude_provider_ids
         return params
 
 
@@ -239,11 +243,12 @@ class Bot:
         cfg = self.config
         LOG.info(
             "startup service=%s country=%s maxPrice=%s providerIds=%s "
-            "workers=%s limit=%.1f/s",
+            "excludeProviderIds=%s workers=%s limit=%.1f/s",
             cfg.service,
             cfg.country,
             cfg.max_price,
             cfg.provider_ids or "none",
+            cfg.exclude_provider_ids or "none",
             cfg.workers,
             cfg.rate,
         )
