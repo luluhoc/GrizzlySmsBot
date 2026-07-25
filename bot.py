@@ -50,6 +50,7 @@ class Config:
     country: str
     max_price: str
     provider_ids: str | None
+    exclude_provider_ids: str | None
     workers: int
     rate: float
     timeout: float
@@ -65,6 +66,7 @@ class Config:
             country=env_required("COUNTRY"),
             max_price=env_required("MAX_PRICE"),
             provider_ids=os.getenv("PROVIDER_IDS", "").strip() or None,
+            exclude_provider_ids=os.getenv("EXCLUDE_PROVIDER_IDS", "").strip() or None,
             workers=env_int("THREADS"),
             rate=env_float("MAX_REQUESTS_PER_SECOND"),
             timeout=env_float("REQUEST_TIMEOUT_SECONDS", 1),
@@ -74,17 +76,14 @@ class Config:
         )
 
     @property
-    def params(self) -> dict[str, str]:
-        params = {
+    def base_params(self) -> dict[str, str]:
+        return {
             "api_key": self.api_key,
             "action": "getNumber",
             "service": self.service,
             "country": self.country,
             "maxPrice": self.max_price,
         }
-        if self.provider_ids:
-            params["providerIds"] = self.provider_ids
-        return params
 
 
 class RateLimiter:
@@ -134,6 +133,44 @@ class Bot:
         self.status_lock = threading.Lock()
         self.total_requests = 0
         self.no_numbers = 0
+        self._params: dict[str, str] = {}
+
+    def _fetch_all_provider_ids(self, session: requests.Session) -> list[str]:
+        try:
+            response = session.get(
+                self.config.api_url,
+                params={"api_key": self.config.api_key, "action": "getProviders"},
+                timeout=self.config.timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list):
+                return [str(item["id"]) for item in data if "id" in item]
+            if isinstance(data, dict):
+                return list(data.keys())
+            return []
+        except Exception as exc:
+            LOG.warning("failed to fetch provider list: %s", exc)
+            return []
+
+    def _resolve_effective_provider_ids(self, session: requests.Session) -> str | None:
+        cfg = self.config
+        if not cfg.exclude_provider_ids:
+            return cfg.provider_ids
+
+        exclude = {pid.strip() for pid in cfg.exclude_provider_ids.split(",") if pid.strip()}
+
+        if cfg.provider_ids:
+            included = [pid.strip() for pid in cfg.provider_ids.split(",") if pid.strip()]
+            effective = [pid for pid in included if pid not in exclude]
+            return ",".join(effective) if effective else None
+
+        all_providers = self._fetch_all_provider_ids(session)
+        if not all_providers:
+            LOG.warning("could not fetch provider list; exclusion not applied")
+            return None
+        effective = [pid for pid in all_providers if pid not in exclude]
+        return ",".join(effective) if effective else None
 
     def send_notification(self, title: str, message: str, urgent: bool = False) -> bool:
         try:
@@ -195,7 +232,7 @@ class Bot:
         try:
             response = session.get(
                 self.config.api_url,
-                params=self.config.params,
+                params=self._params,
                 timeout=self.config.timeout,
             )
         except requests.RequestException as error:
@@ -237,13 +274,24 @@ class Bot:
 
     def run(self) -> None:
         cfg = self.config
+        setup_session = new_session()
+        try:
+            effective_provider_ids = self._resolve_effective_provider_ids(setup_session)
+        finally:
+            setup_session.close()
+
+        self._params = cfg.base_params
+        if effective_provider_ids:
+            self._params["providerIds"] = effective_provider_ids
+
         LOG.info(
             "startup service=%s country=%s maxPrice=%s providerIds=%s "
-            "workers=%s limit=%.1f/s",
+            "excludeProviderIds=%s workers=%s limit=%.1f/s",
             cfg.service,
             cfg.country,
             cfg.max_price,
-            cfg.provider_ids or "none",
+            effective_provider_ids or "none",
+            cfg.exclude_provider_ids or "none",
             cfg.workers,
             cfg.rate,
         )

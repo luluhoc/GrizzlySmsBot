@@ -86,6 +86,7 @@ docker compose down
 | `COUNTRY` | yes | Grizzly country code. The example `62` is Turkey. See the [API docs](https://grizzlysms.com/docs-old) and [price/country table](https://grizzlysms.com/price). |
 | `MAX_PRICE` | yes | Maximum price accepted by Grizzly SMS. |
 | `PROVIDER_IDS` | no | Comma-separated provider IDs to include. Leave empty to omit `providerIds`. |
+| `EXCLUDE_PROVIDER_IDS` | no | Comma-separated provider IDs to exclude. Applied in code: subtracted from `PROVIDER_IDS` if set, otherwise all available providers are fetched first and then filtered. |
 | `NTFY_URL` | yes | ntfy topic URL used for notifications. |
 | `THREADS` | yes | Number of worker threads. |
 | `MAX_REQUESTS_PER_SECOND` | yes | Global request start limit shared by all workers. |
@@ -130,6 +131,34 @@ Do not send `providerIds` at all:
 
 ```env
 PROVIDER_IDS=
+```
+
+## Excluding Providers
+
+`EXCLUDE_PROVIDER_IDS` is optional. Because the GrizzlySMS API does not have a
+native `excludeProviderIds` parameter, the bot implements this in code at startup:
+
+- If `PROVIDER_IDS` is also set, the excluded IDs are subtracted from that list.
+- If `PROVIDER_IDS` is not set, the bot fetches the full list of available
+  providers from the API and then removes the excluded IDs before sending
+  requests.
+
+Exclude a single provider:
+
+```env
+EXCLUDE_PROVIDER_IDS=5
+```
+
+Exclude multiple providers:
+
+```env
+EXCLUDE_PROVIDER_IDS=5,10
+```
+
+Do not exclude any provider:
+
+```env
+EXCLUDE_PROVIDER_IDS=
 ```
 
 ## Tuning
